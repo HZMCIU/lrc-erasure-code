@@ -30,3 +30,10 @@
 
 # Debug files
 *.dSYM/
+golang
+.cache
+config.log
+config.status
+test/.gdb_history
+libtool
+src/.libs/

@@ -98,7 +98,7 @@ int lrc_encode(lrc_t *lrc, lrc_buf_t *lb) {
 int lrc_decode(lrc_t *lrc, lrc_buf_t *lb, int8_t *erased) {
 
   int ret = 0;
-  lrc_decoder_t *dec = &(lrc_decoder_t) {0};
+  lrc_decoder_t *dec = &(lrc_decoder_t){0};
 
   ret = lrc_decoder_init(dec, lrc, lb, erased);
   if (ret != 0) {
@@ -140,7 +140,6 @@ int lrc_get_source(lrc_t *lrc, int8_t *erased, int8_t *source) {
     /* local code for reconstruction */
     int j = lrc->k + i;
     source[j] = erased[j] == 0;
-
   }
 
   if (n_erased > 0) {
@@ -217,12 +216,11 @@ int *lrc_make_matrix(lrc_t *lrc) {
     for (int j = 0; j < l->len; j++) {
       lrc_matrix[i * k + l->start + j] = 1;
     }
-
   }
 
   for (int i = 0; i < m - lrc->n_local; i++) {
     for (int j = 0; j < k; j++) {
-      lrc_matrix[(lrc->n_local + i)*k + j] = matrix[(i + 1) * k + j];
+      lrc_matrix[(lrc->n_local + i) * k + j] = matrix[(i + 1) * k + j];
     }
   }
 
@@ -354,8 +352,7 @@ int lrc_buf_init(lrc_buf_t *lb, lrc_t *lrc, int64_t chunk_size) {
   lb->chunk_size = chunk_size;
   lb->aligned_chunk_size = lrc_align_16(chunk_size);
 
-  ret = posix_memalign((void **)&lb->buf, 16,
-                       lb->aligned_chunk_size * lb->n);
+  ret = posix_memalign((void **)&lb->buf, 16, lb->aligned_chunk_size * lb->n);
   if (ret != 0) {
     goto exit;
   }
@@ -400,7 +397,8 @@ int lrc_buf_shadow(lrc_buf_t *lb, lrc_buf_t *src) {
 
 /* lrc decoder */
 
-int lrc_decoder_init(lrc_decoder_t *dec, lrc_t *lrc, lrc_buf_t *lb, int8_t *erased) {
+int lrc_decoder_init(lrc_decoder_t *dec, lrc_t *lrc, lrc_buf_t *lb,
+                     int8_t *erased) {
 
   /*
    * To a certain pattern of data loss, a specific matrix specific is required
@@ -455,7 +453,8 @@ int lrc_decoder_init(lrc_decoder_t *dec, lrc_t *lrc, lrc_buf_t *lb, int8_t *eras
       dd("decoder map: %d -> %d", i, to);
       dec->buf.code[to - k] = lb->code[i - k];
       dec->erased[to] = erased[i];
-      memcpy(&dec->decode_matrix[(to - k) * k], &lrc->matrix[(i - k) * k], sizeof(lrc->matrix[0]) * k);
+      memcpy(&dec->decode_matrix[(to - k) * k], &lrc->matrix[(i - k) * k],
+             sizeof(lrc->matrix[0]) * k);
       to++;
     }
   }
@@ -505,9 +504,77 @@ int lrc_decoder_decode(lrc_decoder_t *dec) {
   }
   erasures[start] = -1;
 
-  return jerasure_matrix_decode(lb->n_data, lb->n_code, 8, dec->decode_matrix, 0,
-                                erasures, lb->data, lb->code,
+  return jerasure_matrix_decode(lb->n_data, lb->n_code, 8, dec->decode_matrix,
+                                0, erasures, lb->data, lb->code,
                                 lb->chunk_size);
 }
 
+int min(int a, int b) { return a > b ? b : a; }
+
+int lrc_encode_223(char *data, int size, char **segment, int *seg_size) {
+  lrc_t *lrc = &(lrc_t){0};
+  lrc_buf_t *buf = &(lrc_buf_t){0};
+  int seg_len = size % 4 ? size / 4 + 1 : size / 4;
+  int buf_size = seg_len;
+  if (lrc_init_n(lrc, 2, (uint8_t[]){2, 2}, 3) != 0) {
+    return -1;
+  }
+  if (lrc_buf_init(buf, lrc, buf_size) != 0) {
+    return -1;
+  }
+
+  for (int i = 0; i < 4; i++) {
+    seg_size[i] = min(seg_len, size - i * seg_len);
+    memcpy(buf->data[i], data + i * seg_len, seg_size[i]);
+    memcpy(segment[i], data + i * seg_len, seg_size[i]);
+  }
+
+  if (lrc_encode(lrc, buf) != 0) {
+    return -1;
+  }
+
+  memcpy(segment[4], buf->code[0], seg_len);
+  memcpy(segment[5], buf->code[1], seg_len);
+  memcpy(segment[6], buf->code[2], seg_len);
+
+  seg_size[4] = seg_len;
+  seg_size[5] = seg_len;
+  seg_size[6] = seg_len;
+
+  lrc_destroy(lrc);
+  lrc_buf_destroy(buf);
+
+  return 0;
+}
+
+int lrc_decode_223(char **segment, int *seg_size, int8_t *erased, char *data) {
+  int buf_size = seg_size[0];
+  lrc_t *lrc = &(lrc_t){0};
+  lrc_buf_t *buf = &(lrc_buf_t){0};
+
+  if (lrc_init_n(lrc, 2, (uint8_t[]){2, 2}, 3) != 0) {
+    return -1;
+  }
+  if (lrc_buf_init(buf, lrc, buf_size) != 0) {
+    return -1;
+  }
+
+  for (int i = 0; i < 4; i++) {
+    memcpy(buf->data[i], segment[i], seg_size[i]);
+  }
+  for (int i = 4; i < 7; i++) {
+    memcpy(buf->code[i - 4], segment[i], seg_size[i]);
+  }
+
+  if (lrc_decode(lrc, buf, erased) != 0) {
+    return -1;
+  }
+
+  int len = 0;
+  for (int i = 0; i < 4; i++) {
+    memcpy(data + len, buf->data[i], strlen(buf->data[i]));
+    len += strlen(buf->data[i]);
+  }
+  return 0;
+}
 // vim:sw=2:fdl=0
