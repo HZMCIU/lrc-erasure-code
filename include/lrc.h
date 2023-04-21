@@ -136,8 +136,12 @@ int lrc_decoder_init(lrc_decoder_t *dec, lrc_t *lrc, lrc_buf_t *lb,
 void lrc_decoder_destroy(lrc_decoder_t *dec);
 int lrc_decoder_decode(lrc_decoder_t *dec);
 
-int lrc_encode_223(char *data, int data_size, char **segment, int *seg_size);
-int lrc_decode_223(char **segment, int *seg_size, int8_t *erased, char *data);
+#define ROW 7
+#define COL (1024 * 1024)
 
+int lrc_encode_223(char *data, int data_size, char *segment, int row, int col,
+                   int *seg_size);
+int lrc_decode_223(char *segment, int row, int col, int *seg_size,
+                   int8_t *erased, char *data);
 #endif /* LRC_EC_LRC_ */
        // vim:sw=2:fdl=1

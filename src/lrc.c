@@ -511,7 +511,8 @@ int lrc_decoder_decode(lrc_decoder_t *dec) {
 
 int min(int a, int b) { return a > b ? b : a; }
 
-int lrc_encode_223(char *data, int size, char **segment, int *seg_size) {
+int lrc_encode_223(char *data, int size, char *segment, int row, int col,
+                   int *seg_size) {
   lrc_t *lrc = &(lrc_t){0};
   lrc_buf_t *buf = &(lrc_buf_t){0};
   int seg_len = size % 4 ? size / 4 + 1 : size / 4;
@@ -526,16 +527,16 @@ int lrc_encode_223(char *data, int size, char **segment, int *seg_size) {
   for (int i = 0; i < 4; i++) {
     seg_size[i] = min(seg_len, size - i * seg_len);
     memcpy(buf->data[i], data + i * seg_len, seg_size[i]);
-    memcpy(segment[i], data + i * seg_len, seg_size[i]);
+    memcpy(segment + i * col, data + i * seg_len, seg_size[i]);
   }
 
   if (lrc_encode(lrc, buf) != 0) {
     return -1;
   }
 
-  memcpy(segment[4], buf->code[0], seg_len);
-  memcpy(segment[5], buf->code[1], seg_len);
-  memcpy(segment[6], buf->code[2], seg_len);
+  memcpy(segment + 4 * col, buf->code[0], seg_len);
+  memcpy(segment + 5 * col, buf->code[1], seg_len);
+  memcpy(segment + 6 * col, buf->code[2], seg_len);
 
   seg_size[4] = seg_len;
   seg_size[5] = seg_len;
@@ -547,7 +548,8 @@ int lrc_encode_223(char *data, int size, char **segment, int *seg_size) {
   return 0;
 }
 
-int lrc_decode_223(char **segment, int *seg_size, int8_t *erased, char *data) {
+int lrc_decode_223(char *segment, int row, int col, int *seg_size,
+                   int8_t *erased, char *data) {
   int buf_size = seg_size[0];
   lrc_t *lrc = &(lrc_t){0};
   lrc_buf_t *buf = &(lrc_buf_t){0};
@@ -560,10 +562,10 @@ int lrc_decode_223(char **segment, int *seg_size, int8_t *erased, char *data) {
   }
 
   for (int i = 0; i < 4; i++) {
-    memcpy(buf->data[i], segment[i], seg_size[i]);
+    memcpy(buf->data[i], segment + i * col, seg_size[i]);
   }
   for (int i = 4; i < 7; i++) {
-    memcpy(buf->code[i - 4], segment[i], seg_size[i]);
+    memcpy(buf->code[i - 4], segment + i * col, seg_size[i]);
   }
 
   if (lrc_decode(lrc, buf, erased) != 0) {
@@ -572,9 +574,9 @@ int lrc_decode_223(char **segment, int *seg_size, int8_t *erased, char *data) {
 
   int len = 0;
   for (int i = 0; i < 4; i++) {
-    memcpy(data + len, buf->data[i], strlen(buf->data[i]));
-    len += strlen(buf->data[i]);
+    memcpy(data + len, buf->data[i], seg_size[i]);
+    len += seg_size[i];
   }
-  return 0;
+  return len;
 }
 // vim:sw=2:fdl=0
